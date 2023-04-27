@@ -134,7 +134,6 @@ public class Program
 
         File.WriteAllText(reportFileName, "");
         File.WriteAllText(errorFileName,  "");
-        var ct = Console.GetCursorPosition();
         for (int i = 0; i < fs.Count; i++)
         {
             // Не повторяем файлы, если вдруг они повторно перечисленны в списке
@@ -153,7 +152,7 @@ public class Program
                 FilesSize = 0;
             }
 
-            PrintExecutionStatus(started, clamscanThreads - 1, ct.Top);
+            PrintExecutionStatus(started, clamscanThreads - 1);
         }
 
         if (fs.Count != allCount)
@@ -173,7 +172,7 @@ public class Program
         }
         else
         {
-            Console.WriteLine($"Program successfully ended. Scanned {countOfScannedFiles} files");
+            Console.WriteLine($"Program successfully ended. Scanned {countOfScannedFiles} files. Infected files: {countOfInfectedFiles}");
         }
 
         Console.WriteLine("clamav reports in the file " + Path.GetFullPath(reportFileName));
@@ -182,7 +181,7 @@ public class Program
 
         return (int)Errors.success;
 
-        static void PrintExecutionStatus(DateTime started, int maxCountOfTasks = 0, int cursorTop = -1)
+        static void PrintExecutionStatus(DateTime started, int maxCountOfTasks = 0)
         {
             while (countOfTasks > maxCountOfTasks)
             {
@@ -192,17 +191,9 @@ public class Program
                 var now = DateTime.Now;
                 var sp = now - started;
 
-                if (cursorTop >= 0)
-                {
-                    Console.SetCursorPosition(0, cursorTop);
-                }
-
+                Console.CursorLeft = 0;
                 Console.Write($"{(sizeOfScanndeFiles*100f/TotalSize).ToString("F1"), 5}% completed. Execution time {sp.TotalMinutes.ToString("F0"), 2} minutes. Time {now.ToLocalTime()}");
-
-                if (cursorTop >= 0)
-                {
-                    Console.SetCursorPosition(0, cursorTop);
-                }
+                Console.CursorLeft = 0;
             }
         }
     }
