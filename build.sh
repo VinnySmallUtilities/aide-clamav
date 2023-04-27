@@ -11,6 +11,7 @@ dotnet publish --output ./publish/build.net -c Release --self-contained false /p
 dotnet publish --output ./publish/build.cur -c Release --use-current-runtime true --self-contained false /p:PublishSingleFile=true /p:PublishReadyToRun=true
 
 dotnet publish --output ./publish/build.lin64   -c Release -r linux-x64 --self-contained false /p:PublishSingleFile=true
+
 dotnet publish --output ./publish/build.lin64sc -c Release -r linux-x64 --self-contained true  /p:PublishSingleFile=true /p:PublishTrimmed=true
 
 
