@@ -64,6 +64,8 @@ public class Program
             return (int)Errors.reportFileNotExists;
         }
 
+        Console.WriteLine($"Begin. Time {started.ToLocalTime()}");
+
         var clamscanFile = confLines[1];
         var clamscanArgs = confLines[2];
 
@@ -89,18 +91,27 @@ public class Program
             reportLines,
             delegate (string line, ParallelLoopState _state, long _)
             {
-                if (!line.Contains(":"))
+                // "d" - это директория - их мы не проверяем, только файлы
+                // "f" - строки всех файлов начинаются на букву "f"
+                if (!line.Contains(":") || !line.StartsWith("f"))
                     return;
 
-                var sLine = line.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var sLine = line.Split(':', 2, StringSplitOptions.RemoveEmptyEntries);
                 if (sLine.Length < 2)
+                    return;
+                
+                var fileName =  sLine[1].TrimStart();
+                if (fileName.Length <= 0)
                     return;
 
                 // Получаем имя файла для антивирусной проверки
-                var fi = new FileInfo(sLine[1]);
+                var fi = new FileInfo(fileName);
                 fi.Refresh();
                 if (!fi.Exists)
+                {
+                    // Console.WriteLine("File skipped: " + fi.FullName);
                     return;
+                }
 
                 // ExecClamScan(fi, clamscanFile, clamscanArgs);
                 Interlocked.Add(ref TotalSize, fi.Length);
@@ -119,9 +130,11 @@ public class Program
         var curList   = new List<string>(count + 1);
         var lineLen   = 0;
         var FilesSize = 0L;
+        var allCount  = 0L;
 
         File.WriteAllText(reportFileName, "");
         File.WriteAllText(errorFileName,  "");
+        var ct = Console.GetCursorPosition();
         for (int i = 0; i < fs.Count; i++)
         {
             // Не повторяем файлы, если вдруг они повторно перечисленны в списке
@@ -131,7 +144,8 @@ public class Program
             curList.Add(fs[i]);
             lineLen   += fs[i].Length;
             FilesSize += new FileInfo(fs[i]).Length;
-            if (curList.Count > count || lineLen >= 64*1024 - 4096)
+            allCount++;
+            if (curList.Count > count || lineLen >= MaxCommandLen)
             {
                 ExecClamScan(curList, clamscanFile, clamscanArgs, FilesSize);
                 curList   = new List<string>(count + 1);
@@ -139,19 +153,20 @@ public class Program
                 FilesSize = 0;
             }
 
-            PrintExecutionStatus(started, clamscanThreads - 1);
+            PrintExecutionStatus(started, clamscanThreads - 1, ct.Top);
         }
+
+        Console.WriteLine("\nAdded to scan " + allCount + " files");
 
         if (curList.Count > 0)
             ExecClamScan(curList, clamscanFile, clamscanArgs, FilesSize);
 
-        Console.WriteLine($"Started {countOfTasks} tasks. Time {DateTime.Now.ToLocalTime()}");
-        PrintExecutionStatus(started);
+        PrintExecutionStatus(started); Console.WriteLine();
 
         if (countOfInfectedFiles > 0)
             Console.WriteLine("FOUND INFECTED FILES: " + countOfInfectedFiles);
 
-        if (fs.Count != countOfScannedFiles)
+        if (allCount != countOfScannedFiles)
         {
             Console.WriteLine($"Program ended. FAILURE! Added to scan: {fs.Count} files; scanned: {countOfScannedFiles} files");
         }
@@ -166,25 +181,30 @@ public class Program
 
         return (int)Errors.success;
 
-        static void PrintExecutionStatus(DateTime started, int maxCountOfTasks = 0)
+        static void PrintExecutionStatus(DateTime started, int maxCountOfTasks = 0, int cursorTop = -1)
         {
             while (countOfTasks > maxCountOfTasks)
             {
                 lock (sync)
-                    Monitor.Wait(sync, 60_000);
+                    Monitor.Wait(sync/*, 60_000*/);
 
                 var now = DateTime.Now;
                 var sp = now - started;
 
-                var ct = Console.CursorTop;
-                Console.WriteLine($"Executed {countOfTasks} tasks. Execution time {sp.TotalMinutes.ToString("F0")} minutes. Time {now.ToLocalTime()}");
-                Console.SetCursorPosition(0, ct);
+                if (cursorTop >= 0)
+                {
+                    Console.SetCursorPosition(0, cursorTop);
+                }
+
+                Console.Write($"{(sizeOfScanndeFiles*100f/TotalSize).ToString("F1"), 5}% completed. Execution time {sp.TotalMinutes.ToString("F0"), 2} minutes. Time {now.ToLocalTime()}");
             }
         }
     }
 
     public readonly static string reportFileName = "clamav-report.log";
     public readonly static string errorFileName  = "errors.log";
+
+    public const int MaxCommandLen = 512*1024 - 4096;
 
     protected static object sync = new Object();
     protected static int    countOfTasks         = 0;
@@ -203,7 +223,7 @@ public class Program
         (
             delegate
             {
-                var sb = new StringBuilder(1024*1024);
+                var sb = new StringBuilder(1024 * 1024);
 
                 sb.Append(clamscanArgs);
                 foreach (var file in FullNames)
@@ -214,25 +234,24 @@ public class Program
                 }
                 // File.AppendAllText(reportFileName, sb.ToString());
 
-                var psi = new ProcessStartInfo(clamscanFile, sb.ToString()); sb = null;
+                var psi = new ProcessStartInfo(clamscanFile, sb.ToString()); sb.Clear();
                 psi.RedirectStandardOutput = true;
-                var pi = Process.Start(psi);
+                using var pi = Process.Start(psi);
 
                 if (pi == null)
                 {
-                    Console.Error.WriteLine($"Execute command failed: {psi.FileName} {psi.Arguments}");
+                    Console.Error.WriteLine($"Executing for command failed: {psi.FileName} {psi.Arguments}");
                     return;
                 }
 
-                Process.Start("renice", "-n 19 -p " + pi.Id);
-                Process.Start("ionice", "-c 3 -p "  + pi.Id);
+                renice(pi);
 
                 pi.WaitForExit();
                 var clamavReport = pi.StandardOutput.ReadToEnd();
                 lock (sync)
                     File.AppendAllText(reportFileName, clamavReport + "\n\n----------------------------------------------------------------\n\n");
 
-                int scanned  = 0;
+                int scanned = 0;
                 int infected = 0;
                 try
                 {
@@ -246,7 +265,7 @@ public class Program
 
                 Interlocked.Decrement(ref countOfTasks);
                 Interlocked.Add(ref countOfScannedFiles,  scanned);
-                Interlocked.Add(ref countOfInfectedFiles, scanned);
+                Interlocked.Add(ref countOfInfectedFiles, infected);
                 Interlocked.Add(ref sizeOfScanndeFiles,   FilesSize);
 
                 lock (sync)
@@ -257,11 +276,12 @@ public class Program
                 if (scanned != FullNames.Count || infected > 0)
                 {
                     sb.Clear();
-                    sb.AppendLine("Error or infected in files:");
-                    sb.AppendJoin("\n", FullNames);
+                    sb.AppendLine($"Error or infected in files. Infected: {infected}; Scanned: {scanned}. Files:");
+                    foreach (var file in FullNames)
+                        sb.AppendLine(file);
 
                     lock (sync)
-                    File.AppendAllText(errorFileName,  "\n\n----------------------------------------------------------------\n\n\n\n");
+                        File.AppendAllText(errorFileName, sb.ToString() + "\n\n----------------------------------------------------------------\n\n\n\n");
                 }
             }
         );
@@ -293,6 +313,17 @@ public class Program
 
             scanned = Int32.Parse(str);
             return scanned;
+        }
+
+        static void renice(Process pi)
+        {
+            var psi = new ProcessStartInfo("renice", "-n 19 -p " + pi.Id);
+            psi.RedirectStandardOutput = true;
+            using var pi1 = Process.Start(psi);
+
+            psi = new ProcessStartInfo("ionice", "-c 3 -p " + pi.Id);
+            psi.RedirectStandardOutput = true;
+            using var pi2 = Process.Start(psi);
         }
     }
 

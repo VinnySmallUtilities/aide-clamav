@@ -12,6 +12,8 @@ dotnet publish --output ./publish/build.cur -c Release --use-current-runtime tru
 
 dotnet publish --output ./publish/build.lin64   -c Release -r linux-x64 --self-contained false /p:PublishSingleFile=true
 
+cp -fvu ./publish/build.lin64/aide-clamav .
+
 dotnet publish --output ./publish/build.lin64sc -c Release -r linux-x64 --self-contained true  /p:PublishSingleFile=true /p:PublishTrimmed=true
 
 
@@ -26,6 +28,4 @@ echo
 echo 'aide-clamav-dotnet  for execute with dotnet aide-clamav.dll'
 echo 'aide-clamav-lin64   for execute aide-clamav (with .NET 7.0 on Linux)'
 echo 'aide-clamav-lin64sc for execute aide-clamav on Linux x64 without .NET 7.0'
-
-cp -fvu ./publish/build.lin64sc/aide-clamav .
-
+echo
