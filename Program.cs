@@ -107,7 +107,7 @@ public class Program
                 // Получаем имя файла для антивирусной проверки
                 var fi = new FileInfo(fileName);
                 fi.Refresh();
-                if (!fi.Exists)
+                if (!fi.Exists || fi.Length <= 0) // fi.LinkTarget != null
                 {
                     // Console.WriteLine("File skipped: " + fi.FullName);
                     return;
@@ -156,7 +156,8 @@ public class Program
             PrintExecutionStatus(started, clamscanThreads - 1, ct.Top);
         }
 
-        Console.WriteLine("\nAdded to scan " + allCount + " files");
+        if (fs.Count != allCount)
+            Console.WriteLine("\nAdded to scan " + allCount + " files");
 
         if (curList.Count > 0)
             ExecClamScan(curList, clamscanFile, clamscanArgs, FilesSize);
@@ -197,6 +198,11 @@ public class Program
                 }
 
                 Console.Write($"{(sizeOfScanndeFiles*100f/TotalSize).ToString("F1"), 5}% completed. Execution time {sp.TotalMinutes.ToString("F0"), 2} minutes. Time {now.ToLocalTime()}");
+
+                if (cursorTop >= 0)
+                {
+                    Console.SetCursorPosition(0, cursorTop);
+                }
             }
         }
     }
